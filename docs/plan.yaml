@@ -1,0 +1,206 @@
+project_name: AI情報共有チャットアシスタント
+
+overview:
+  purpose: |
+    活発な情報交換が行われるDiscordサーバーの会話データを活用し、AIによる情報の整理・調査・解説・要約を通じて、ユーザーの知識獲得と理解を支援するプラットフォームを構築する。
+    特に、過去の会話を振り返りやすくすることに重点を置く。
+  scope: 5名未満の友人間での利用を想定し、インフラの複雑性よりも開発・運用のシンプルさを優先する。
+  core_design_decisions:
+    - discord_data_access: AIが分析対象とするDiscordの会話データは、分析リクエスト時に都度Discord APIから直接取得する。Supabase DBにはDiscordの生メッセージを網羅的にアーカイブせず、DBのシンプルさを維持する。
+    - supabase_role: 生成されたAIレポートの保存・管理、ユーザー認証、アプリケーション設定の管理に特化する。
+    - primary_ui: Webアプリケーション (Next.js) をメインのインターフェースとし、レポート閲覧や対話的な深掘りを可能にする。Discordボットの機能は最小限とする。
+    - development_language: TypeScriptで可能な限り統一する。
+
+requirements:
+  functional:
+    discord_data_access_and_mcp:
+      title: Discordデータ連携とMCP構想
+      on_demand_access: # framework.md の思想
+        description: |
+          AIプラットフォーム (Mastraエージェント) からの指示に基づき、Supabase Functions経由でDiscord APIを利用し、
+          指定された期間・チャンネルのメッセージ、スレッド、リアクション、ユーザー情報などをオンデマンドで取得する。
+        data_format_for_agent: Mastraエージェントが扱いやすい形式に整形して提供する。
+      mcp_server_concept: # project.md の思想 (将来構想または代替案として)
+        description: |
+          将来的または別アプローチとして、DiscordデータをModel Context Protocol (MCP)に準拠した形式で提供する専用サーバーを構築する構想。
+          これにより、AIモデルや他のMCPクライアントがDiscordのコンテキストを標準化された方法で利用可能になる。
+        features:
+          - 継続的なデータ取得とリアルタイム/ニアリアルタイム更新
+          - MCP準拠のAPIエンドポイント実装
+          - 認証・認可メカニズム
+          - MCPクライアントからのデータフィルタリング・検索要求対応
+    ai_platform_features: # project.md 1.2.2.
+      title: AIプラットフォーム (情報整理・調査・解説機能)
+      information_organization:
+        description: 指定された会話やトピックから主要な論点、決定事項、質問、提案などを構造化して抽出・提示。会話の流れを時系列やトピック別に整理。
+        examples: 議論のマインドマップ生成、Q&Aリスト自動作成、重要発言ハイライト。
+      information_retrieval:
+        description: 会話内で言及された専門用語、固有名詞、概念、URLなどについて、AIが追加情報を調査し補足情報を提供。必要に応じて信頼できる外部情報源を参照。
+        caution: セキュリティと正確性に十分注意。
+      information_explanation:
+        description: 複雑な議論や技術的な内容を平易な言葉で解説。会話の背景や文脈を考慮し、初心者にも理解しやすい説明を提供。省略された情報や暗黙の前提を補完。
+      summarization:
+        description: 長大な会話や議論の概要を簡潔にまとめる (主要機能の補助として)。
+      interaction:
+        description: ユーザーが特定のメッセージやスレッドを選択し、整理・調査・解説を要求可能。AI出力へのフィードバック機能 (任意)。
+    user_interface: # project.md 1.2.3. と framework.md 2.
+      primary_method: Webアプリケーション (Next.js)
+      web_interface_details: |
+        メインのユーザーインターフェース。AIが生成したレポートの閲覧、対話形式での深掘り機能を提供。
+        詳細な設定、過去の分析結果の閲覧・検索、体系的な情報整理。
+        設定画面 (分析対象チャンネル選択、通知設定など)。
+      discord_bot_format: # project.md 1.2.3. (framework.mdでは最小限)
+        description: 補助的な利用方法として、Discord上で特定のコマンドやメンションを通じてAI機能を利用。結果はDiscordのチャンネル、スレッド、DMに投稿。
+      mcp_server_users_info: # project.md 1.2.3. (MCPサーバー構築時)
+        description: (MCPサーバー構築の場合) MCPサーバーへの接続情報、APIドキュメントの提供。
+
+  non_functional: # project.md 1.3.
+    performance:
+      - MCPサーバーの応答速度 (データ提供レイテンシ) (MCP構築時)
+      - AIによる情報整理・調査・解説の処理時間
+    scalability:
+      - 監視対象のDiscordサーバー数、メッセージ量、ユーザー数の増加への対応
+      - MCPサーバーへの同時アクセス数への対応 (MCP構築時)
+    security:
+      - Discord APIキー、MCPサーバー認証情報、個人情報・機密情報の厳重管理
+      - 不正アクセス対策、権限管理
+      - MCP仕様に準じたセキュアな通信 (MCP構築時)
+    data_freshness_accuracy:
+      - (MCP構築時) MCPサーバーが提供するDiscordデータのリアルタイム性
+      - (オンデマンドアクセス時) API経由で取得するデータの鮮度
+      - AIによる解説・調査結果の信頼性と正確性、誤情報リスク低減
+    protocol_compliance: # MCP関連
+      - (MCP構築時) Model Context Protocol仕様の正しい実装と相互運用性確保
+    usability:
+      - (Discordボットの場合) コマンドの分かりやすさ、操作の容易さ
+      - (Web UIの場合) 直感的なインターフェース
+    reliability_availability: システム全体の安定稼働
+    maintainability_extendability:
+      - 各機能モジュールのモジュール性
+      - 新しいAIモデルへの対応や分析機能追加の容易さ
+
+architecture:
+  primary_approach_framework_based:
+    title: 現行の主要アーキテクチャ案 (framework.md ベース)
+    description: Mastra AIエージェントとSupabaseを中心とし、Discord APIから都度データを取得する構成。
+    conceptual_diagram_description: |
+      ユーザーはNext.js Web UIを通じて分析をリクエスト。
+      Next.jsアプリはSupabase Functions (UI向けAPI) にリクエストを転送。
+      Supabase FunctionsはMastra AI Agentを起動/指示。
+      Mastra AgentはSupabase Functions (Discord APIプロキシ) を通じてDiscord APIから都度データを取得。
+      取得したデータをGemini APIで分析。
+      結果レポートはSupabase DBに保存され、UIに表示される。
+      Supabase Authがユーザー認証を担う。
+      (Mermaid図の詳細は docs/framework.md の「4. システム構成案」を参照)
+    components:
+      user_interface_nextjs: Next.js (TypeScript) - メインUI。レポート閲覧、対話的深掘り。
+      supabase_functions_ui_api: Supabase Functions (TypeScript) - Next.jsからのリクエスト受付、Mastraエージェント呼び出し、レポート保存指示。
+      mastra_ai_agent: Mastra (AIエージェントフレームワーク, TypeScript) - データ取得指示、Gemini API連携、処理フローオーケストレーション。
+      supabase_functions_discord_proxy: Supabase Functions (TypeScript) - Discord APIからのオンデマンドデータ取得とMastraへの連携。
+      discord_api: Discord API (discord.js等) - メッセージデータ提供。
+      gemini_api: Gemini API - 会話データ分析 (整理、調査、解説、要約)。
+      supabase_db: Supabase Database (PostgreSQL) - AI生成レポート、ユーザーアカウント情報、アプリ設定の永続化。
+      supabase_auth: Supabase Auth - Next.jsアプリのユーザー認証。
+    data_flow: # framework.md 5.
+      - step: 1. ユーザー操作
+        description: ユーザーがNext.js Web UIで期間やチャンネルを指定し分析をリクエスト。
+      - step: 2. リクエスト受付
+        description: Next.jsがリクエストを受け、Supabase Functions (UI向けAPI) に送信。
+      - step: 3. AIエージェント処理 (Mastra)
+        description: Supabase FunctionsがMastra AIエージェントを起動/呼び出し、リクエスト内容を伝達。Mastraが分析に必要なDiscordメッセージ範囲を特定。
+      - step: 4. Discordデータ取得
+        description: MastraがSupabase Functions (Discord APIプロキシ) にメッセージ取得を指示。プロキシがDiscord APIを呼び出し、整形済みデータをMastraに返却。
+      - step: 5. AI分析 (Gemini API)
+        description: Mastraが取得・整形データをGemini APIに送信し分析を実行。
+      - step: 6. レポート生成と保存
+        description: MastraがGemini APIからの結果をレポートとして整形し、Supabase Functions経由でSupabase DBに保存指示。
+      - step: 7. 結果表示
+        description: Supabase Functionsが結果をNext.jsに返し、Next.jsがレポートを表示。
+
+  alternative_approach_mcp_based: # project.md のMCPを中心とした構成案 (参考または将来構想として)
+    title: 代替/将来アーキテクチャ案 (project.md ベース MCPサーバー中心)
+    description: Discord MCPサーバーを構築し、AIプラットフォームがMCPクライアントとしてデータを利用する構成。
+    conceptual_diagram_description: |
+      DiscordサーバーからDiscord API (Bot Token) を経由してDiscord MCPサーバーがデータを収集。
+      Discord MCPサーバーはModel Context Protocolを通じてAIプラットフォーム/MCPクライアントにデータを提供。
+      AIプラットフォームは情報整理・調査・解説モジュールで処理を行い、LLMや外部APIを利用。
+      結果は結果格納DB/キャッシュに保存され、ユーザーインターフェース (Discordボット等) を通じてユーザーに提供される。
+      (Mermaid図の詳細は docs/project.md の「2.1. システム構成案（改訂版）」を参照)
+    components:
+      discord_mcp_server: Python (FastAPI, Flask等) と Discord.py等で実装。Discordデータ取得とMCP形式でのAPI提供。
+      ai_platform_mcp_client: Discord MCPサーバーからコンテキストを取得し、ユーザーリクエストを解釈して処理モジュールに依頼。
+      information_module: 情報整理・調査・解説を行うモジュール。テキスト分析技術、LLM、外部検索APIを利用。
+      user_interface_bot_etc: Discordボットなど、ユーザーがAI機能を利用するためのインターフェース。
+
+technology_stack: # framework.md 3. をベースに project.md の情報を加味
+  categories:
+    - category: AIエージェント
+      technology: Mastra (AIエージェントフレームワーク)
+      role: AIプラットフォームの中核。データ取得指示、Gemini API連携、処理フローのオーケストレーション。TypeScriptで開発。
+    - category: LLM
+      technology: Gemini API
+      role: 会話データの分析（整理、調査、解説、要約）を実行する大規模言語モデル。
+    - category: フロントエンド
+      technology: Next.js (TypeScript)
+      role: メインのユーザーインターフェース。AIが生成したレポートの閲覧、対話形式での深掘り機能を提供。
+    - category: バックエンド (Supabase)
+      components:
+        - name: Database (PostgreSQL)
+          role: AIが生成したレポート、ユーザーアカウント情報、アプリケーション設定の永続化。Discordの生メッセージは保存しない。
+        - name: Auth
+          role: Next.jsアプリケーションのユーザー認証。
+        - name: Functions (TypeScript)
+          role: Discord APIからのオンデマンドデータ取得とMastraへの連携（Discord APIプロキシ/アダプタ）、Next.jsからのバックエンド処理リクエスト受付、Mastraエージェントの呼び出し。
+    - category: Discord連携
+      technology: Discord API (discord.js等)
+      role: Supabase Functions経由で、Mastraエージェントの指示に基づき、指定された期間・チャンネルのメッセージを都度取得。
+  llm_selection_notes: # project.md 1.4., 2.2.
+    model_candidates: [GPTシリーズ, Gemini, Claude]
+    important_capabilities:
+      - Retrieval Augmented Generation (RAG) のようなアプローチ
+      - 長文の文脈理解能力
+    considerations:
+      - コストと性能のバランス
+  external_information_handling: # project.md 2.2.
+    focus_points:
+      - 情報の正確性
+      - 出典の明示
+      - ハルシネーション（もっともらしい嘘の情報）の抑制
+
+development_plan: # project.md 2.3. を framework.md の設計に合わせて調整
+  title: 開発ステップ案
+  steps:
+    - phase: 1. コア機能開発 (PoC)
+      description: |
+        Discord API直接連携によるデータ取得モジュール (Supabase Functions) と、
+        基本的なAI解説機能 (Mastra + Gemini) をWeb UI (Next.js) 上で動作させる最小限のシステムを構築。
+      key_activities:
+        - Discordメッセージ取得機能 (Supabase Function + discord.js)
+        - MastraエージェントによるGemini API連携と簡単な解説生成ロジック
+        - Next.jsでのリクエスト送信と結果表示UI
+    - phase: 2. 情報整理・調査機能の段階的追加
+      description: |
+        キーワード抽出、トピック分類などの基本的な整理機能を追加。
+        限定的な範囲での外部情報検索と組み合わせた調査・解説機能を開発。
+      key_activities:
+        - Mastraエージェントに整理・調査ロジックを実装
+        - 必要に応じて外部検索API連携
+    - phase: 3. 機能拡充と堅牢化
+      description: |
+        データ取得のリアルタイム性向上検討 (必要な場合)、フィルタリング機能の充実、認証・認可の強化。
+        AIプラットフォームの処理能力向上。
+      key_activities:
+        - Supabase Authを利用したユーザー認証の実装
+        - エラーハンドリング、ロギングの強化
+    - phase: 4. 高度なAI機能とUIの改善
+      description: |
+        より複雑な情報整理（マインドマップ風表示等）、ユーザーフィードバック機構、
+        対話的な深掘りUIの改善。
+      key_activities:
+        - UI/UXの改善
+        - 高度な分析機能のプロトタイピングと実装
+    - phase: 5. テスト・評価・改善
+      description: AIの出力品質評価、ユーザビリティテストを継続的に実施し、改善サイクルを回す。
+      key_activities:
+        - ユーザーテストの実施
+        - パフォーマンス測定と最適化

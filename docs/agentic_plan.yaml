@@ -1,0 +1,325 @@
+title: AI情報共有チャットアシスタント - Agentic Implementation Plan (GitHub Issue Focused)
+
+description: |
+  このドキュメントは、AI情報共有チャットアシスタントプロジェクトの詳細な実装タスクプランです。
+  自律型コーディングエージェント（例: claude code）がGitHub Issueと連携して実行することを想定しています。
+  各タスクは、GitHub Issueとして起票されることを前提に定義されています。
+  Supabaseプロジェクトのセットアップ、Discordアプリケーションの作成とBotトークンの取得、Gemini APIキーの準備、Mastra AIフレームワークの実行環境構築といったインフラ関連の準備は別途完了しているものとします。
+
+global_assumptions:
+  - **Technology Stack:** Next.js (TypeScript, React), Supabase (TypeScript Edge Functions, PostgreSQL Database, Auth), Mastra AI Framework, Google Gemini API.
+  - **Version Control:** Git。機能開発はフィーチャーブランチで行い、Pull Request経由でメインブランチにマージします。
+  - **API Key Management:** Discord Botトークン、Gemini APIキーなどの全てのAPIキーは、環境変数として安全に管理され、インフラチームによって設定済みであること。エージェントは、Supabase FunctionおよびNext.jsアプリケーションの実行環境でこれらの環境変数が利用可能であることを期待してください。
+  - **Code Quality:** 生成されるコードは、適切なコメントが付与され、TypeScript/JavaScriptの標準的なコーディング規約に従い、堅牢なエラーハンドリングを含むこと。
+  - **Testing:** 主要なロジックコンポーネントには単体テストを必須とします。主要な機能連携ポイントは結合テストで検証されること。
+  - **Directory Structure (推奨):**
+    - Next.js: `web/` (例: `web/app/`, `web/components/`, `web/lib/`)
+    - Supabase Functions: `supabase/functions/` (各ファンクションはサブディレクトリに配置)
+    - Mastra Agents: `agents/` (またはMastraの推奨する構成に従う)
+
+phases:
+  - phase_number: 1
+    phase_name: "コア機能開発 (Proof of Concept)"
+    objective: "最小限の実行可能なプロダクト（MVP）を実装します。具体的には、Discordメッセージの分析をリクエストできるWeb UIを作成し、基本的なAI解説処理を行い、その結果をUIに表示する一連のフローを完成させます。"
+    github_issues:
+      - issue_id: "AGENT-CORE-001"
+        title: "[Next.js] 分析リクエスト用UIフォームコンポーネントの実装"
+        description: |
+          **目的:** ユーザーがDiscordチャンネルIDや分析期間などのパラメータを入力し、分析リクエストを送信できるUIフォームをNext.jsで作成します。
+
+          **実装詳細:**
+          1.  **ファイル作成:** `web/components/AnalysisRequestForm.tsx` というパスに新しいReactコンポーネントを作成してください。
+          2.  **フォーム要素:** 以下の入力フィールドを持つフォームを実装します:
+              *   DiscordチャンネルID (テキスト入力、必須)
+              *   分析開始日 (日付入力、任意、例: `YYYY-MM-DD`形式)
+              *   分析終了日 (日付入力、任意、例: `YYYY-MM-DD`形式)
+              *   (PoCでは上記を優先。将来的に「過去24時間」「過去7日間」などのプリセット期間選択も検討)
+          3.  **状態管理:** Reactの `useState` フックを使用して、フォーム入力値を管理してください。
+          4.  **送信ボタン:** 「分析実行」というラベルのボタンを設置してください。
+          5.  **送信処理:** ボタンクリック時に実行される `handleSubmit` 非同期関数 (`async/await`) を実装します。この関数は、フォームデータを収集し、後続のIssueで作成するSupabase Function (Mastraエージェント呼び出しAPI) を呼び出す処理を記述します。現時点では、API呼び出し部分はスタブとし、フォームデータをコンソールに出力するだけにしてください。
+          6.  **バリデーション:** チャンネルIDが入力されていることを確認する基本的なクライアントサイドバリデーションを実装してください。
+          7.  **スタイリング:** Tailwind CSS (プロジェクトに導入済みの場合) またはCSS Modulesを使用して、基本的なスタイリングを適用し、フォームの可読性と操作性を確保してください。
+
+          **受入基準:**
+          *   指定された入力フィールドと送信ボタンを持つフォームが正しくレンダリングされること。
+          *   フォームの入力値がコンポーネントの状態で正しく管理されること。
+          *   送信ボタンクリック時に、フォームデータがコンソールに出力されること。
+          *   チャンネルIDの基本的なバリデーションが機能すること。
+          *   コードには適切なコメントが付与されていること。
+        dependencies: []
+        components: ["Next.js"]
+        deliverables:
+          - "`web/components/AnalysisRequestForm.tsx` ファイル"
+          - "フォームの入力と送信処理を行う `handleSubmit` 関数のコードスニペット"
+
+      - issue_id: "AGENT-CORE-002"
+        title: "[Supabase Function] Discordメッセージ取得機能の実装"
+        description: |
+          **目的:** 指定されたDiscordチャンネルIDと期間に基づき、Discord APIからメッセージデータを取得するSupabase Edge Functionを実装します。
+
+          **実装詳細:**
+          1.  **Function作成:** `supabase/functions/fetch-discord-messages/index.ts` というパスに新しいSupabase Functionを作成してください。
+          2.  **パラメータ:** このFunctionは、HTTP POSTリクエストのボディとして以下のJSONパラメータを受け取ること:
+              *   `channelId` (string, 必須)
+              *   `startDate` (string, YYYY-MM-DD形式, 任意)
+              *   `endDate` (string, YYYY-MM-DD形式, 任意)
+              *   `limit` (number, 任意, デフォルト100件)
+          3.  **Discord API連携:** `discord.js` ライブラリ (またはDiscord APIへの直接HTTPリクエスト) を使用して、指定されたチャンネルからメッセージを取得します。環境変数 `DISCORD_BOT_TOKEN` を使用して認証してください。
+              *   期間指定がある場合は、その期間内のメッセージをフィルタリングして取得してください。Discord APIの `before`, `after`, `around` パラメータを活用します。
+              *   `limit` パラメータに基づいて取得件数を制限してください。
+          4.  **データ整形:** 取得したメッセージデータを、以下の情報を含むJSONオブジェクトの配列として整形してください:
+              *   `id` (メッセージID)
+              *   `content` (メッセージ本文)
+              *   `authorName` (送信者名)
+              *   `authorId` (送信者ID)
+              *   `timestamp` (ISO 8601形式の送信日時)
+          5.  **レスポンス:** 整形したメッセージデータの配列をJSON形式で返却してください。
+          6.  **エラーハンドリング:** Discord API呼び出し時のエラー（例: チャンネルが見つからない、権限不足、APIレート制限）や、パラメータ不正の場合には、適切なHTTPステータスコード（例: 400, 403, 404, 500）とエラーメッセージをJSON形式で返却してください。
+
+          **受入基準:**
+          *   Functionが指定されたパラメータで正しくDiscord APIを呼び出し、メッセージを取得できること。
+          *   取得したメッセージが指定されたJSON形式に整形されて返却されること。
+          *   期間フィルタリングと件数制限が正しく機能すること。
+          *   エラー発生時に適切なエラーレスポンスが返却されること。
+          *   コードには適切なコメントと型定義が含まれていること。
+        dependencies: []
+        components: ["Supabase Function", "Discord API"]
+        deliverables:
+          - "`supabase/functions/fetch-discord-messages/index.ts` ファイル"
+          - "Functionのテストに使用したリクエスト例とレスポンス例（成功時・エラー時）"
+
+      - issue_id: "AGENT-CORE-003"
+        title: "[Mastra Agent] 基本AI解説ロジックの実装"
+        description: |
+          **目的:** Mastra AIフレームワークを使用して、入力されたDiscordメッセージ群を基に、Gemini APIを利用して基本的な解説文を生成するコアロジックを実装します。
+
+          **実装詳細:**
+          1.  **エージェント作成:** `agents/basic-explainer-agent.ts` (またはMastraの推奨構成に従ったパス) に新しいMastraエージェントクラスを作成してください。
+          2.  **入力:** このエージェントは、`AGENT-CORE-002` で定義された形式のDiscordメッセージオブジェクトの配列を入力として受け取ります。
+          3.  **処理フロー:**
+              *   入力されたメッセージ群を結合し、Gemini APIへの入力に適した単一のテキストプロンプトを生成します。
+                  (例: 「以下のDiscord会話を簡潔に解説してください:\n{会話内容}」)
+              *   Gemini API (例: `gemini-pro` モデル) を呼び出し、生成されたプロンプトを送信して解説文を取得します。環境変数 `GEMINI_API_KEY` を使用して認証してください。
+              *   Gemini APIから得られた解説文を返却します。
+          4.  **Gemini API連携:** Mastraの機能または適切なHTTPクライアントライブラリを使用してGemini APIとの連携を実装してください。
+          5.  **エラーハンドリング:** Gemini API呼び出し時のエラー（例: APIキー不正、レート制限、不適切なコンテンツ）を捕捉し、適切に処理してください。エラー発生時は、エラー情報を含む結果を返すか、例外をスローしてください。
+
+          **受入基準:**
+          *   エージェントがDiscordメッセージ配列を正しく処理し、Gemini APIへのプロンプトを生成できること。
+          *   Gemini APIを呼び出し、解説文を正常に取得できること。
+          *   Gemini APIエラー発生時に、適切なエラーハンドリングが行われること。
+          *   コードはMastra AIフレームワークの規約に従い、型安全であること。
+        dependencies: []
+        components: ["Mastra Agent", "Gemini API"]
+        deliverables:
+          - "`agents/basic-explainer-agent.ts` ファイル"
+          - "Gemini APIに送信するプロンプトの生成ロジックのコードスニペット"
+
+      - issue_id: "AGENT-CORE-004"
+        title: "[Supabase Function] Mastraエージェント呼び出しAPIの実装"
+        description: |
+          **目的:** Next.jsフロントエンドからのリクエストを受け付け、`AGENT-CORE-003`で実装したMastraエージェントを起動し、Discordメッセージの解説処理を実行するSupabase Edge Functionを実装します。
+
+          **実装詳細:**
+          1.  **Function作成:** `supabase/functions/explain-discord-chat/index.ts` というパスに新しいSupabase Functionを作成してください。
+          2.  **パラメータ:** このFunctionは、HTTP POSTリクエストのボディとして以下のJSONパラメータを受け取ること:
+              *   `channelId` (string, 必須)
+              *   `startDate` (string, YYYY-MM-DD形式, 任意)
+              *   `endDate` (string, YYYY-MM-DD形式, 任意)
+              *   `limit` (number, 任意, デフォルト100件)
+          3.  **処理フロー:**
+              *   まず、`AGENT-CORE-002` で作成した `fetch-discord-messages` Supabase Functionを内部的に呼び出し (または同等のロジックを実行し)、指定されたパラメータに基づいてDiscordメッセージデータを取得します。
+              *   取得したメッセージデータを `AGENT-CORE-003` で作成した `BasicExplainerAgent` に渡し、解説処理を実行します。
+              *   エージェントから返された解説結果 (テキスト) をJSON形式でフロントエンドに返却します。
+                  (例: `{ "explanation": "AIによる解説文..." }`)
+          4.  **Mastraエージェント連携:** Mastraエージェントのインスタンス化と実行呼び出しを実装してください。
+          5.  **エラーハンドリング:** メッセージ取得エラー、Mastraエージェント処理エラー、Gemini APIエラーなど、処理中のあらゆるエラーを捕捉し、適切なHTTPステータスコードとエラーメッセージをJSON形式で返却してください。
+
+          **受入基準:**
+          *   Functionがフロントエンドからのリクエストパラメータを正しく処理できること。
+          *   内部的にDiscordメッセージ取得処理を呼び出し、データを取得できること。
+          *   Mastraエージェントを起動し、解説処理を実行させ、結果を取得できること。
+          *   解説結果が指定されたJSON形式でフロントエンドに返却されること。
+          *   各ステップでのエラーが適切にハンドリングされ、エラーレスポンスが返却されること。
+        dependencies: ["AGENT-CORE-002", "AGENT-CORE-003"]
+        components: ["Supabase Function", "Mastra Agent"]
+        deliverables:
+          - "`supabase/functions/explain-discord-chat/index.ts` ファイル"
+          - "Functionのテストに使用したリクエスト例とレスポンス例（成功時・エラー時）"
+
+      - issue_id: "AGENT-CORE-005"
+        title: "[Next.js] 分析結果表示UIとAPI連携の実装"
+        description: |
+          **目的:** `AGENT-CORE-001`で作成した分析リクエストフォームからAPIを呼び出し、`AGENT-CORE-004`で作成したSupabase Functionから返されるAIによる解説結果を画面に表示します。
+
+          **実装詳細:**
+          1.  **ファイル更新:** `web/components/AnalysisRequestForm.tsx` (または結果表示用の新しいコンポーネント `web/components/AnalysisResultDisplay.tsx` を作成し、それを親コンポーネントに統合) を更新します。
+          2.  **API呼び出し:** `handleSubmit` 関数内で、`fetch` APIまたは `axios` 等のHTTPクライアントライブラリを使用して、`AGENT-CORE-004`で実装した `/explain-discord-chat` Supabase FunctionのエンドポイントにPOSTリクエストを送信します。リクエストボディにはフォームの入力値を含めてください。
+          3.  **状態管理:** APIリクエスト中のローディング状態 (例: `isLoading` state) と、取得した解説結果 (例: `explanation` state)、エラー情報 (例: `error` state) を管理するために `useState` フックを使用してください。
+          4.  **結果表示:** ローディング中はスピナーや「処理中...」のようなメッセージを表示します。APIから解説結果が正常に取得できたら、その内容を画面の適切な箇所に表示します。エラーが発生した場合は、エラーメッセージを表示します。
+          5.  **UI要素:** 解説文を表示するためのシンプルなテキストエリアや整形済みテキストブロック (`<pre>`) を使用してください。
+          6.  **スタイリング:** 結果表示エリアにも基本的なスタイリングを適用してください。
+
+          **受入基準:**
+          *   分析リクエストフォームからAPIが正しく呼び出されること。
+          *   APIレスポンス（解説文またはエラー）に応じて、ローディング状態、結果表示、エラー表示が正しく切り替わること。
+          *   AIによる解説文が画面に表示されること。
+          *   API通信エラー発生時に、ユーザーにエラーメッセージが通知されること。
+        dependencies: ["AGENT-CORE-001", "AGENT-CORE-004"]
+        components: ["Next.js"]
+        deliverables:
+          - "更新された `AnalysisRequestForm.tsx` または新しい `AnalysisResultDisplay.tsx` ファイル"
+          - "API呼び出しと結果表示ロジックのコードスニペット"
+          - "結果表示UIのスクリーンショット（成功時・エラー時・ローディング時）"
+
+      - issue_id: "AGENT-CORE-006"
+        title: "[Test] コア機能の単体テスト実装 (Supabase Functions)"
+        description: |
+          **目的:** Phase 1で実装したSupabase Function (`fetch-discord-messages`, `explain-discord-chat`) の主要ロジックに対して単体テストを作成します。
+
+          **実装詳細:**
+          1.  **テストフレームワーク:** Supabase Functionsのテストに適したフレームワーク (例: Deno標準のテストモジュール, Jest) を使用してください。
+          2.  **`fetch-discord-messages` Functionのテスト:**
+              *   Discord APIクライアントのモックを作成し、正常な応答、エラー応答をシミュレートします。
+              *   有効なパラメータ、無効なパラメータ、境界値での呼び出しをテストします。
+              *   レスポンスデータ形式の検証、エラーハンドリングの検証を行います。
+          3.  **`explain-discord-chat` Functionのテスト:**
+              *   `fetch-discord-messages` Function (またはそのロジック) の呼び出しとMastraエージェントの呼び出しをモックします。
+              *   正常系（解説文が返る）、異常系（メッセージ取得失敗、エージェント処理失敗）のシナリオをテストします。
+              *   リクエストパラメータの処理、レスポンス形式、エラーハンドリングを検証します。
+          4.  テストは各Functionのディレクトリ内に `_test.ts` または `spec.ts` といった命名規則で配置してください。
+
+          **受入基準:**
+          *   主要なロジックパスが単体テストでカバーされていること。
+          *   モックが効果的に使用され、外部依存性を排除したテストが実現できていること。
+          *   テストがCI環境 (設定されていれば) で自動実行可能であること。
+        dependencies: ["AGENT-CORE-002", "AGENT-CORE-004"]
+        components: ["Supabase Function", "Testing"]
+        deliverables:
+          - "`supabase/functions/fetch-discord-messages/index_test.ts` ファイル"
+          - "`supabase/functions/explain-discord-chat/index_test.ts` ファイル"
+
+      - issue_id: "AGENT-CORE-007"
+        title: "[Test] コア機能の単体テスト実装 (Mastra Agent)"
+        description: |
+          **目的:** Phase 1で実装した `BasicExplainerAgent` のコアロジックに対して単体テストを作成します。
+
+          **実装詳細:**
+          1.  **テストフレームワーク:** JestやVitestなど、TypeScriptプロジェクトに適したテストフレームワークを使用してください。
+          2.  **テスト対象:** `BasicExplainerAgent` クラスの主要メソッド。
+          3.  **モック:** Gemini APIクライアントをモックし、正常な解説文応答、エラー応答（APIエラー、不適切コンテンツ等）をシミュレートします。
+          4.  **テストシナリオ:**
+              *   様々なパターンのDiscordメッセージ入力（空、短い会話、長い会話）に対するプロンプト生成ロジックの検証。
+              *   Gemini APIからの正常な応答を受け取った場合の出力検証。
+              *   Gemini APIがエラーを返した場合のエラーハンドリング検証。
+          5.  テストファイルはエージェントのコードと同じディレクトリか、専用の `__tests__` ディレクトリに配置してください。
+
+          **受入基準:**
+          *   エージェントの主要なロジックが単体テストでカバーされていること。
+          *   Gemini APIのモックが正しく機能し、様々な応答シナリオをテストできること。
+          *   テストがCI環境で自動実行可能であること。
+        dependencies: ["AGENT-CORE-003"]
+        components: ["Mastra Agent", "Testing"]
+        deliverables:
+          - "`agents/basic-explainer-agent.test.ts` (または同様のテストファイル)"
+
+      - issue_id: "AGENT-CORE-008"
+        title: "[Test] コア機能の単体テスト実装 (Next.js UI)"
+        description: |
+          **目的:** Phase 1で実装したNext.jsのUIコンポーネント (`AnalysisRequestForm`, `AnalysisResultDisplay`等) の基本的な動作とロジックに対して単体テストを作成します。
+
+          **実装詳細:**
+          1.  **テストフレームワーク:** React Testing Library と Jest (またはVitest) を使用してください。
+          2.  **`AnalysisRequestForm` のテスト:**
+              *   コンポーネントが正しくレンダリングされることの確認。
+              *   入力フィールドへのユーザー入力シミュレーションと、それによる状態変化の検証。
+              *   フォーム送信時の `handleSubmit` 関数呼び出しの検証 (API呼び出し自体はモック)。
+              *   基本的なバリデーションロジックのテスト。
+          3.  **`AnalysisResultDisplay` (または関連ロジックを持つコンポーネント) のテスト:**
+              *   ローディング状態、データ表示状態、エラー表示状態がプロパティに応じて正しくレンダリングされることの確認。
+              *   Supabase Function APIの呼び出し部分をモックし、様々なAPI応答（成功、エラー）に対するUIの挙動をテストします。
+          4.  テストファイルはコンポーネントと同じディレクトリか、専用の `__tests__` ディレクトリに配置してください。
+
+          **受入基準:**
+          *   UIコンポーネントの主要な状態とインタラクションが単体テストでカバーされていること。
+          *   API呼び出しが適切にモックされ、UIの応答をテストできること。
+          *   テストがCI環境で自動実行可能であること。
+        dependencies: ["AGENT-CORE-001", "AGENT-CORE-005"]
+        components: ["Next.js", "Testing"]
+        deliverables:
+          - "`web/components/AnalysisRequestForm.test.tsx` ファイル"
+          - "`web/components/AnalysisResultDisplay.test.tsx` (または関連するテストファイル)"
+
+  # Phase 2以降も同様の粒度でIssueを定義していきます。
+  # 以下はPhase 2の概要のみ。実際のIssue定義はPhase 1と同様に詳細化が必要です。
+
+  - phase_number: 2
+    phase_name: "情報整理・調査機能の実装 (段階的)"
+    objective: "AIによる会話のキーワード抽出、トピック分類、外部情報源を利用した調査解説といった、より高度な分析機能を実装します。"
+    github_issues:
+      - issue_id: "AGENT-FEAT-001"
+        title: "[Mastra Agent & Gemini] キーワード抽出機能の実装"
+        description: "入力された会話データから主要なキーワードを抽出するロジックをMastraエージェントとGemini APIプロンプトで実装します。"
+        dependencies: ["AGENT-CORE-003"]
+        components: ["Mastra Agent", "Gemini API"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-002"
+        title: "[Next.js] キーワード表示UIの実装"
+        description: "抽出されたキーワードをフロントエンドで表示するUIコンポーネントを実装します。"
+        dependencies: ["AGENT-FEAT-001", "AGENT-CORE-005"]
+        components: ["Next.js"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-003"
+        title: "[Mastra Agent & Gemini] トピック分類機能の実装"
+        description: "会話全体の主要トピックを分類するロジックを実装します。"
+        dependencies: ["AGENT-CORE-003"]
+        components: ["Mastra Agent", "Gemini API"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-004"
+        title: "[Next.js] トピック表示UIの実装"
+        description: "分類されたトピックをフロントエンドで表示するUIコンポーネントを実装します。"
+        dependencies: ["AGENT-FEAT-003", "AGENT-CORE-005"]
+        components: ["Next.js"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-005"
+        title: "[Mastra Agent] 外部検索API連携による情報調査ロジックの実装"
+        description: "会話内容に基づき外部検索API (例: SerpApi) を呼び出し、関連情報を取得・要約するロジックを実装します。"
+        dependencies: ["AGENT-CORE-003"]
+        components: ["Mastra Agent", "Gemini API", "External API"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-006"
+        title: "[Next.js] 調査結果表示UIの実装"
+        description: "外部調査結果とAIによる解説をフロントエンドで表示するUIを実装します。"
+        dependencies: ["AGENT-FEAT-005", "AGENT-CORE-005"]
+        components: ["Next.js"]
+        # ... deliverables, etc.
+      - issue_id: "AGENT-FEAT-007"
+        title: "[Test] 情報整理・調査機能の単体テスト実装"
+        description: "Phase 2で追加された新機能に関する単体テストを実装します。"
+        dependencies: ["AGENT-FEAT-001", "AGENT-FEAT-003", "AGENT-FEAT-005"]
+        components: ["Testing"]
+        # ... deliverables, etc.
+
+  # Phase 3, 4, 5 も同様に、各タスクを詳細なGitHub Issue形式で記述します。
+  # 紙面の都合上、ここでは省略しますが、実際のプランでは全てのタスクを網羅的に記述する必要があります。
+
+  - phase_number: 3
+    phase_name: "機能拡充と堅牢性の向上 (実装)"
+    objective: "ユーザー認証機能の実装、エラーハンドリングとロギングの強化（コードレベル）、データ取得処理の改善などを行い、システムの信頼性と使い勝手を向上させます。"
+    github_issues: [] # AGENT-ENH-XXX の形式でIssueを定義
+
+  - phase_number: 4
+    phase_name: "高度なAI機能とUI/UXの改善 (実装)"
+    objective: "マインドマップ風表示やQ&Aリスト生成といったより高度な情報整理機能、対話的な深掘りUI、ユーザーフィードバック機構などを実装し、ユーザー体験を大幅に向上させます。"
+    github_issues: [] # AGENT-ADV-XXX の形式でIssueを定義
+
+  - phase_number: 5
+    phase_name: "テスト・評価・継続的改善 (実装関連タスク)"
+    objective: "実装チームとして、コード品質の向上、AI出力の改善、ユーザビリティ向上に貢献するための実装作業を行います。"
+    github_issues: [] # AGENT-QUAL-XXX の形式でIssueを定義
+
+# 注意事項:
+# - このプランは実装タスクに特化しています。インフラ設定、CI/CDパイプライン構築、本番環境の監視設定などは別途インフラチームが担当します。
+# - 各Issueの粒度や内容は、エージェントの能力やプロジェクトの進捗に応じて調整してください。
+# - エージェントへの指示は、曖昧さを排し、可能な限り具体的かつ明確に記述することが重要です。
+# - 依存関係のあるIssueは、先行するIssueが完了してから着手するようにしてください。
